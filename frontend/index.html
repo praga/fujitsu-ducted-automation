@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Fujitsu Ducted Aircon</title>
+  
+  <!-- PWA Meta -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0d1117">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Fujitsu AC">
+  
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%3E%3Ctext y=%2226%22 font-size=%2224%22%3E❄️%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Bar -->
+    <header class="top-bar">
+      <div class="brand">
+        <span class="fujitsu-logo">FUJITSU</span>
+        <span class="sub-label">Ducted Climate</span>
+      </div>
+      <div class="status-pill" id="statusBadge">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">Connecting...</span>
+      </div>
+    </header>
+
+    <!-- Main Thermostat Card -->
+    <main class="main-card">
+      <!-- Ambient Reading -->
+      <div class="ambient-pill">
+        <span class="ambient-icon">🌡️</span>
+        <span>Room: <strong id="roomTemp">--.-</strong>°C</span>
+      </div>
+
+      <!-- Dial Display -->
+      <div class="temp-dial-wrapper">
+        <div class="temp-dial" id="tempDial">
+          <div class="target-label">SET TEMP</div>
+          <div class="temp-number-row">
+            <span class="temp-value" id="targetTemp">24.0</span>
+            <span class="temp-unit">°C</span>
+          </div>
+          <div class="mode-badge" id="activeModeBadge">COOLING</div>
+        </div>
+      </div>
+
+      <!-- Temperature Stepper Buttons -->
+      <div class="stepper-row">
+        <button class="step-btn" id="btnTempDown" aria-label="Decrease temperature">
+          <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+        
+        <!-- Master Power Button -->
+        <button class="power-btn" id="btnPower" aria-label="Power Toggle">
+          <svg viewBox="0 0 24 24" width="34" height="34" stroke="currentColor" stroke-width="2.5" fill="none">
+            <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+            <line x1="12" y1="2" x2="12" y2="12"></line>
+          </svg>
+          <span class="power-text" id="powerText">OFF</span>
+        </button>
+
+        <button class="step-btn" id="btnTempUp" aria-label="Increase temperature">
+          <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+      </div>
+    </main>
+
+    <!-- Controls Container -->
+    <section class="controls-section">
+      <!-- Mode Selection -->
+      <div class="section-title">OPERATION MODE</div>
+      <div class="mode-grid">
+        <button class="control-btn" data-mode="cool">
+          <span class="icon">❄️</span>
+          <span class="label">Cool</span>
+        </button>
+        <button class="control-btn" data-mode="heat">
+          <span class="icon">☀️</span>
+          <span class="label">Heat</span>
+        </button>
+        <button class="control-btn" data-mode="dry">
+          <span class="icon">💧</span>
+          <span class="label">Dry</span>
+        </button>
+        <button class="control-btn" data-mode="fan_only">
+          <span class="icon">🌀</span>
+          <span class="label">Fan</span>
+        </button>
+        <button class="control-btn" data-mode="auto">
+          <span class="icon">🔄</span>
+          <span class="label">Auto</span>
+        </button>
+      </div>
+
+      <!-- Fan Speed Selection -->
+      <div class="section-title">FAN SPEED</div>
+      <div class="fan-grid">
+        <button class="fan-btn" data-fan="quiet">
+          <span class="fan-bar-icon">🤫</span>
+          <span>Quiet</span>
+        </button>
+        <button class="fan-btn" data-fan="low">
+          <span class="fan-bar-icon">▂</span>
+          <span>Low</span>
+        </button>
+        <button class="fan-btn" data-fan="medium">
+          <span class="fan-bar-icon">▃</span>
+          <span>Med</span>
+        </button>
+        <button class="fan-btn" data-fan="high">
+          <span class="fan-bar-icon">▅</span>
+          <span>High</span>
+        </button>
+        <button class="fan-btn" data-fan="auto">
+          <span class="fan-bar-icon">⚙️</span>
+          <span>Auto</span>
+        </button>
+      </div>
+
+      <!-- Quick Preset Row -->
+      <div class="section-title">QUICK PRESETS</div>
+      <div class="presets-row">
+        <button class="preset-pill" data-preset="21.0">Chill (21°C)</button>
+        <button class="preset-pill" data-preset="24.0">Comfort (24°C)</button>
+        <button class="preset-pill" data-preset="26.0">Eco (26°C)</button>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="bus-info">
+        <span>Bus: <strong>3-Wire Polar</strong></span>
+        <span>Role: <strong id="controllerRole">Secondary Remote</strong></span>
+      </div>
+      <div class="last-sync" id="lastSyncText">Connecting to server...</div>
+    </footer>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
