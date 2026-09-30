@@ -107,6 +107,13 @@ body {
 
 .status-dot.offline {
   background-color: #ef4444;
+  box-shadow: 0 0 10px #ef4444;
+  animation: pulseOffline 2s infinite ease-in-out;
+}
+
+@keyframes pulseOffline {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.85); }
 }
 
 /* Main Thermostat Card */
@@ -972,4 +979,103 @@ input:checked + .slider:before {
 
 .btn-save:active {
   transform: scale(0.97);
+}
+
+/* Offline Alert Banner */
+.offline-alert-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #ff6b6b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 10px 14px;
+  border-radius: 14px;
+  width: 100%;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.25);
+  margin-top: 6px;
+  animation: fadeIn 0.3s ease;
+}
+
+.offline-alert-banner.hidden {
+  display: none !important;
+}
+
+.offline-alert-banner .offline-icon {
+  font-size: 1rem;
+}
+
+/* Device Offline State - Visually and functionally disable controls */
+.app-container.device-offline .temp-dial {
+  box-shadow: none !important;
+  opacity: 0.55;
+  filter: grayscale(80%);
+}
+
+.app-container.device-offline .mode-badge {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: #ef4444 !important;
+  color: #ff6b6b !important;
+}
+
+.app-container.device-offline .step-btn,
+.app-container.device-offline .power-btn,
+.app-container.device-offline .control-btn,
+.app-container.device-offline .fan-btn,
+.app-container.device-offline .preset-pill,
+.app-container.device-offline .timer-pill {
+  opacity: 0.35 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  filter: grayscale(50%);
+}
+
+/* Toast Notifications */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 9999;
+  pointer-events: none;
+  width: 90%;
+  max-width: 360px;
+}
+
+.toast {
+  background: rgba(20, 25, 36, 0.95);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  color: #f0f3f6;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: 20px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 16px rgba(239, 68, 68, 0.3);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: toastIn 0.25s ease-out, toastOut 0.3s ease-in 2.7s forwards;
+  pointer-events: auto;
+  text-align: center;
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toastOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(16px); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

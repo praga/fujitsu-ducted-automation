@@ -44,7 +44,8 @@ ac_state: Dict[str, Any] = {
     "fan_mode": "low",
     "swing_mode": "off",
     "preset": "eco",
-    "device_online": True,
+    "device_online": False,
+    "bus_connected": False,
     "is_simulated": False,
     "controller_role": "secondary",
     "last_updated": time.time(),
@@ -84,6 +85,10 @@ def publish_climate_command(field: str, value: str):
 
 def apply_state_change(new_state: Dict[str, Any], force: bool = False):
     """Apply updates to ac_state and publish to ESPHome climate entity."""
+    if not ac_state.get("device_online", False):
+        logger.warning("Rejected apply_state_change: ESP32 hardware is offline")
+        return False
+
     changed = False
 
     # Power control
@@ -177,11 +182,14 @@ def on_message(client, userdata, msg):
         online = payload_str.lower() in ("online", "true", "connected")
         if ac_state["device_online"] != online:
             ac_state["device_online"] = online
+            if not online:
+                ac_state["bus_connected"] = False
             updated = True
+            logger.info(f"ESP32 hardware online status changed -> {online}")
     elif topic == f"{MQTT_TOPIC_PREFIX}/binary_sensor/connected/state":
-        online = payload_str.upper() == "ON"
-        if ac_state["device_online"] != online:
-            ac_state["device_online"] = online
+        bus_conn = payload_str.upper() == "ON"
+        if ac_state.get("bus_connected") != bus_conn:
+            ac_state["bus_connected"] = bus_conn
             updated = True
 
     # Climate mode & power
@@ -241,7 +249,6 @@ def on_message(client, userdata, msg):
             updated = True
 
     if updated:
-        ac_state["device_online"] = True
         ac_state["is_simulated"] = False
         ac_state["last_updated"] = time.time()
         try:
@@ -322,6 +329,8 @@ async def get_status():
 
 @app.post("/api/control")
 async def control_ac(payload: ACControlPayload):
+    if not ac_state.get("device_online", False):
+        raise HTTPException(status_code=503, detail="ESP32 hardware is offline. Reconnect the controller to send commands.")
     changes = payload.model_dump(exclude_unset=True)
     changed = apply_state_change(changes)
     if changed:
@@ -380,6 +389,16 @@ async def websocket_endpoint(websocket: WebSocket):
                 msg = json.loads(text)
                 action = msg.get("action")
                 value = msg.get("value")
+
+                if action in ("set_power", "set_mode", "set_temp", "set_fan", "set_swing", "set_preset"):
+                    if not ac_state.get("device_online", False):
+                        logger.warning(f"Rejected WebSocket command '{action}': ESP32 is offline")
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "message": "ESP32 hardware is offline. Reconnect controller to change settings."
+                        }))
+                        continue
+
                 updates = {}
                 if action == "set_power":
                     updates["power"] = value

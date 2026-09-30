@@ -69,6 +69,12 @@
           <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         </button>
       </div>
+
+      <!-- Offline Alert Banner -->
+      <div class="offline-alert-banner hidden" id="offlineAlertBanner">
+        <span class="offline-icon">⚠️</span>
+        <span id="offlineAlertText">ESP32 Offline — Reconnect controller</span>
+      </div>
     </main>
 
     <!-- Controls Container -->
@@ -258,6 +264,9 @@
       </form>
     </div>
   </dialog>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
 
   <script src="/static/app.js"></script>
 </body>

@@ -9,6 +9,7 @@ let currentACState = {
   fan_mode: "auto",
   swing_mode: "off",
   device_online: false,
+  bus_connected: false,
   is_simulated: false,
   controller_role: "secondary"
 };
@@ -21,6 +22,7 @@ let countdownLocalInterval = null;
 let countdownTargetTimestamp = null;
 
 // DOM Elements
+const appContainer = document.querySelector(".app-container");
 const statusDot = document.getElementById("statusDot");
 const statusText = document.getElementById("statusText");
 const roomTempEl = document.getElementById("roomTemp");
@@ -33,6 +35,9 @@ const btnTempUp = document.getElementById("btnTempUp");
 const btnTempDown = document.getElementById("btnTempDown");
 const lastSyncText = document.getElementById("lastSyncText");
 const controllerRole = document.getElementById("controllerRole");
+const offlineAlertBanner = document.getElementById("offlineAlertBanner");
+const offlineAlertText = document.getElementById("offlineAlertText");
+const toastContainer = document.getElementById("toastContainer");
 
 const modeButtons = document.querySelectorAll(".control-btn");
 const fanButtons = document.querySelectorAll(".fan-btn");
@@ -91,9 +96,50 @@ function triggerHaptic() {
   }
 }
 
+function showToast(message) {
+  if (!toastContainer) return;
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.textContent = message;
+  toastContainer.appendChild(toast);
+  setTimeout(() => {
+    if (toast.parentNode) {
+      toast.parentNode.removeChild(toast);
+    }
+  }, 3000);
+}
+
+function requireOnline() {
+  if (!currentACState.device_online) {
+    showToast("⚠️ ESP32 is offline. Cannot change settings.");
+    if (navigator.vibrate) {
+      try {
+        navigator.vibrate([40, 50, 40]);
+      } catch (e) {}
+    }
+    return false;
+  }
+  return true;
+}
+
 // Update UI to match current state
 function renderState(state) {
   currentACState = { ...currentACState, ...state };
+
+  const isOnline = !!currentACState.device_online;
+
+  // Toggle offline class on container (disables pointer events & dims UI)
+  if (appContainer) {
+    appContainer.classList.toggle("device-offline", !isOnline);
+  }
+
+  // Toggle offline banner
+  if (offlineAlertBanner) {
+    offlineAlertBanner.classList.toggle("hidden", isOnline);
+    if (!isOnline && offlineAlertText) {
+      offlineAlertText.textContent = "ESP32 Offline — Reconnect controller";
+    }
+  }
 
   // Room Temp
   if (currentACState.current_temperature !== undefined) {
@@ -107,18 +153,22 @@ function renderState(state) {
 
   // Power
   const isPowerOn = currentACState.power === "ON";
-  btnPower.classList.toggle("on", isPowerOn);
+  btnPower.classList.toggle("on", isPowerOn && isOnline);
   powerText.textContent = isPowerOn ? "ON" : "OFF";
-  tempDial.classList.toggle("power-off", !isPowerOn);
+  tempDial.classList.toggle("power-off", !isPowerOn || !isOnline);
 
   // Mode Theme & Badge
   const curMode = currentACState.mode || "cool";
   const details = modeDetails[curMode] || modeDetails.cool;
-  activeModeBadge.textContent = isPowerOn ? details.name : "STANDBY";
+  if (!isOnline) {
+    activeModeBadge.textContent = "OFFLINE";
+  } else {
+    activeModeBadge.textContent = isPowerOn ? details.name : "STANDBY";
+  }
   
   // Set dynamic CSS variables for theme glow
   document.documentElement.style.setProperty("--active-color", details.color);
-  document.documentElement.style.setProperty("--active-glow", details.glow);
+  document.documentElement.style.setProperty("--active-glow", isOnline ? details.glow : "none");
 
   // Active Mode Buttons
   modeButtons.forEach(btn => {
@@ -136,7 +186,7 @@ function renderState(state) {
   if (currentACState.is_simulated) {
     statusDot.classList.add("simulated");
     statusText.textContent = "Simulated • Standby";
-  } else if (currentACState.device_online) {
+  } else if (isOnline) {
     statusDot.classList.add("online");
     statusText.textContent = "Live • 3-Wire Sync";
   } else {
@@ -145,7 +195,9 @@ function renderState(state) {
   }
 
   if (currentACState.controller_role) {
-    controllerRole.textContent = currentACState.controller_role === "secondary" ? "Secondary Remote (Wall Active)" : "Master Remote";
+    controllerRole.textContent = !isOnline
+      ? "ESP32 Disconnected"
+      : (currentACState.controller_role === "secondary" ? "Secondary Remote (Wall Active)" : "Master Remote");
   }
 
   // Last update timestamp
@@ -283,6 +335,10 @@ function renderSchedules(schedules) {
     switchInput.checked = !!sched.enabled;
     switchInput.addEventListener("change", (e) => {
       e.stopPropagation();
+      if (!requireOnline()) {
+        switchInput.checked = !switchInput.checked;
+        return;
+      }
       triggerHaptic();
       toggleSchedule(sched.id);
     });
@@ -314,6 +370,7 @@ function renderSchedules(schedules) {
 }
 
 function setCountdownTimer(minutes, action = "OFF") {
+  if (minutes > 0 && !requireOnline()) return;
   triggerHaptic();
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({
@@ -355,6 +412,7 @@ function deleteSchedule(id) {
 
 // Send Command via WebSocket
 function sendAction(action, value) {
+  if (!requireOnline()) return;
   triggerHaptic();
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ action, value }));
@@ -363,7 +421,14 @@ function sendAction(action, value) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ [action.replace("set_", "")]: value })
-    }).catch(err => console.warn("HTTP fallback failed:", err));
+    })
+    .then(async res => {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.detail || "Command failed: ESP32 offline");
+      }
+    })
+    .catch(err => console.warn("HTTP fallback failed:", err));
   }
 }
 
@@ -388,6 +453,8 @@ function connectWebSocket() {
       if (msg.type === "state_update") {
         if (msg.data) renderState(msg.data);
         if (msg.timers) renderTimers(msg.timers);
+      } else if (msg.type === "error") {
+        showToast(msg.message || "Command rejected: ESP32 is offline");
       }
     } catch (e) {
       console.error("Message parse error:", e);
@@ -410,54 +477,53 @@ function connectWebSocket() {
 
 // Event Listeners for Core Controls
 btnPower.addEventListener("click", () => {
+  if (!requireOnline()) return;
   const nextPower = currentACState.power === "ON" ? "OFF" : "ON";
-  renderState({ power: nextPower });
   sendAction("set_power", nextPower);
 });
 
 btnTempUp.addEventListener("click", () => {
+  if (!requireOnline()) return;
   const current = Math.round(Number(currentACState.target_temperature) || 24);
   const nextTemp = Math.min(30, current + 1);
-  renderState({ target_temperature: nextTemp });
   sendAction("set_temp", nextTemp);
 });
 
 btnTempDown.addEventListener("click", () => {
+  if (!requireOnline()) return;
   const current = Math.round(Number(currentACState.target_temperature) || 24);
   const nextTemp = Math.max(16, current - 1);
-  renderState({ target_temperature: nextTemp });
   sendAction("set_temp", nextTemp);
 });
 
 modeButtons.forEach(btn => {
   btn.addEventListener("click", () => {
+    if (!requireOnline()) return;
     const mode = btn.dataset.mode;
-    renderState({ mode });
     sendAction("set_mode", mode);
   });
 });
 
 fanButtons.forEach(btn => {
   btn.addEventListener("click", () => {
+    if (!requireOnline()) return;
     const fan = btn.dataset.fan;
-    const updates = { fan_mode: fan };
+    // If power is OFF, turn ON so fan speed takes effect on the AC
     if (currentACState.power === "OFF") {
-      updates.power = "ON";
       sendAction("set_power", "ON");
     }
+    // In dry mode, fan speed is locked by Fujitsu; switch to cool so fan speed applies
     if (currentACState.mode === "dry") {
-      updates.mode = "cool";
       sendAction("set_mode", "cool");
     }
-    renderState(updates);
     sendAction("set_fan", fan);
   });
 });
 
 presetButtons.forEach(btn => {
   btn.addEventListener("click", () => {
+    if (!requireOnline()) return;
     const temp = parseInt(btn.dataset.preset, 10);
-    renderState({ target_temperature: temp, power: "ON" });
     sendAction("set_temp", temp);
     sendAction("set_power", "ON");
   });
@@ -466,6 +532,7 @@ presetButtons.forEach(btn => {
 // Timer Event Listeners
 document.querySelectorAll(".timer-pill[data-mins]").forEach(btn => {
   btn.addEventListener("click", () => {
+    if (!requireOnline()) return;
     const mins = parseInt(btn.dataset.mins, 10);
     setCountdownTimer(mins, "OFF");
   });
@@ -479,6 +546,7 @@ btnCancelCountdown.addEventListener("click", () => {
 // Custom Countdown Modal Handlers
 let selectedCustomCountdownAction = "OFF";
 btnCustomCountdown.addEventListener("click", () => {
+  if (!requireOnline()) return;
   triggerHaptic();
   countdownModal.showModal();
 });
@@ -588,6 +656,12 @@ scheduleForm.addEventListener("submit", (e) => {
 // Initial load
 window.addEventListener("DOMContentLoaded", () => {
   connectWebSocket();
+
+  // Fetch initial state
+  fetch("/api/status")
+    .then(r => r.json())
+    .then(data => renderState(data))
+    .catch(err => console.log("Init status fetch:", err));
 
   // Fetch initial timers
   fetch("/api/timers")
