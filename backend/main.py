@@ -12,6 +12,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 import paho.mqtt.client as mqtt
 
+try:
+    from backend.timers import timer_manager, CountdownPayload, ScheduleItem
+except ImportError:
+    from timers import timer_manager, CountdownPayload, ScheduleItem
+
 # Logging setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("fujitsu-ac")
@@ -52,7 +57,11 @@ async def broadcast_state():
     """Broadcast current state to all connected WebSockets."""
     if not connected_websockets:
         return
-    message = json.dumps({"type": "state_update", "data": ac_state})
+    message = json.dumps({
+        "type": "state_update",
+        "data": ac_state,
+        "timers": timer_manager.get_timers_state()
+    })
     dead_sockets = set()
     for ws in list(connected_websockets):
         try:
@@ -73,14 +82,14 @@ def publish_climate_command(field: str, value: str):
         topic_legacy = f"{MQTT_TOPIC_PREFIX}/set/{field}"
         mqtt_client.publish(topic_legacy, value, qos=1, retain=False)
 
-def apply_state_change(new_state: Dict[str, Any]):
+def apply_state_change(new_state: Dict[str, Any], force: bool = False):
     """Apply updates to ac_state and publish to ESPHome climate entity."""
     changed = False
 
     # Power control
     if "power" in new_state and new_state["power"] in ("ON", "OFF"):
         new_power = new_state["power"]
-        if ac_state["power"] != new_power:
+        if force or ac_state["power"] != new_power:
             ac_state["power"] = new_power
             changed = True
             if new_power == "OFF":
@@ -241,10 +250,29 @@ def on_message(client, userdata, msg):
         except RuntimeError:
             pass
 
+async def timer_scheduler_loop():
+    logger.info("Timer background scheduler started (1s tick)")
+    while True:
+        try:
+            await timer_manager.check_triggers(lambda s: apply_state_change(s, force=True), broadcast_state)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in timer scheduler loop: {e}")
+        await asyncio.sleep(1)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global mqtt_client
     logger.info("Initializing Fujitsu Ducted AC Live Backend Service...")
+
+    if hasattr(time, 'tzset') and os.getenv('TZ'):
+        try:
+            time.tzset()
+            logger.info(f"System timezone set to {os.getenv('TZ')}")
+        except Exception as e:
+            logger.warning(f"Could not tzset: {e}")
+
     try:
         mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="fujitsu-webapp-backend")
     except AttributeError:
@@ -260,9 +288,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not connect to MQTT Broker ({MQTT_BROKER}:{MQTT_PORT}): {e}")
 
+    # Start timer scheduler background task
+    scheduler_task = asyncio.create_task(timer_scheduler_loop())
+
     yield
 
     logger.info("Shutting down Fujitsu Ducted AC Backend...")
+    scheduler_task.cancel()
+    try:
+        await scheduler_task
+    except asyncio.CancelledError:
+        pass
+
     if mqtt_client:
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
@@ -291,6 +328,39 @@ async def control_ac(payload: ACControlPayload):
         await broadcast_state()
     return {"success": True, "state": ac_state}
 
+# Timer Endpoints
+@app.get("/api/timers")
+async def get_timers():
+    return timer_manager.get_timers_state()
+
+@app.post("/api/timers/countdown")
+async def set_countdown(payload: CountdownPayload):
+    res = timer_manager.set_countdown(payload.minutes, payload.action)
+    await broadcast_state()
+    return {"success": True, "timers": res}
+
+@app.post("/api/timers/schedule")
+async def add_or_update_schedule(payload: ScheduleItem):
+    entry = timer_manager.add_or_update_schedule(payload)
+    await broadcast_state()
+    return {"success": True, "schedule": entry, "timers": timer_manager.get_timers_state()}
+
+@app.post("/api/timers/schedule/{timer_id}/toggle")
+async def toggle_schedule(timer_id: str):
+    success = timer_manager.toggle_schedule(timer_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    await broadcast_state()
+    return {"success": True, "timers": timer_manager.get_timers_state()}
+
+@app.delete("/api/timers/schedule/{timer_id}")
+async def delete_schedule(timer_id: str):
+    success = timer_manager.delete_schedule(timer_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    await broadcast_state()
+    return {"success": True, "timers": timer_manager.get_timers_state()}
+
 # WebSocket Endpoint
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -299,7 +369,11 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info(f"WebSocket client connected. Total clients: {len(connected_websockets)}")
     try:
         # Send immediate live state on connect
-        await websocket.send_text(json.dumps({"type": "state_update", "data": ac_state}))
+        await websocket.send_text(json.dumps({
+            "type": "state_update",
+            "data": ac_state,
+            "timers": timer_manager.get_timers_state()
+        }))
         while True:
             text = await websocket.receive_text()
             try:
@@ -319,6 +393,24 @@ async def websocket_endpoint(websocket: WebSocket):
                     updates["swing_mode"] = value
                 elif action == "set_preset":
                     updates["preset"] = value
+                elif action == "set_countdown":
+                    if isinstance(value, dict):
+                        mins = int(value.get("minutes", 0))
+                        act = str(value.get("action", "OFF"))
+                    else:
+                        mins = int(value)
+                        act = "OFF"
+                    timer_manager.set_countdown(mins, act)
+                    await broadcast_state()
+                    continue
+                elif action == "toggle_schedule":
+                    timer_manager.toggle_schedule(str(value))
+                    await broadcast_state()
+                    continue
+                elif action == "delete_schedule":
+                    timer_manager.delete_schedule(str(value))
+                    await broadcast_state()
+                    continue
 
                 if updates and apply_state_change(updates):
                     await broadcast_state()

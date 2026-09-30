@@ -126,6 +126,40 @@
         <button class="preset-pill" data-preset="24">Comfort (24°C)</button>
         <button class="preset-pill" data-preset="26">Eco (26°C)</button>
       </div>
+
+      <!-- Sleep & Countdown Timer Section -->
+      <div class="section-title">SLEEP / COUNTDOWN TIMER</div>
+      <div class="timer-card" id="timerCard">
+        <!-- Active countdown banner -->
+        <div class="active-countdown-banner hidden" id="activeCountdownBanner">
+          <div class="countdown-info">
+            <span class="countdown-pulse-icon">⏱️</span>
+            <div class="countdown-text-col">
+              <span class="countdown-title" id="countdownBannerTitle">TURNING OFF IN</span>
+              <span class="countdown-clock" id="countdownClockDisplay">00:30:00</span>
+            </div>
+          </div>
+          <button class="cancel-timer-btn" id="btnCancelCountdown" aria-label="Cancel Countdown">Cancel</button>
+        </div>
+
+        <!-- Quick timer setting pills -->
+        <div class="quick-timer-row" id="quickTimerRow">
+          <button class="timer-pill" data-mins="30">30m</button>
+          <button class="timer-pill" data-mins="60">1 hr</button>
+          <button class="timer-pill" data-mins="120">2 hr</button>
+          <button class="timer-pill custom" id="btnCustomCountdown">Custom...</button>
+        </div>
+      </div>
+
+      <!-- Recurring Scheduled Timers Section -->
+      <div class="section-header-row">
+        <span class="section-title">WEEKLY SCHEDULES</span>
+        <button class="add-schedule-btn" id="btnAddSchedule" aria-label="Add Schedule">+ Add</button>
+      </div>
+
+      <div class="schedules-list" id="schedulesList">
+        <div class="no-schedules" id="noSchedulesMsg">No recurring schedules set</div>
+      </div>
     </section>
 
     <!-- Footer -->
@@ -137,6 +171,93 @@
       <div class="last-sync" id="lastSyncText">Connecting to server...</div>
     </footer>
   </div>
+
+  <!-- Schedule Modal Dialog -->
+  <dialog id="scheduleModal" class="modal-dialog">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">New AC Schedule</h3>
+        <button class="modal-close-btn" id="btnCloseScheduleModal" aria-label="Close">&times;</button>
+      </div>
+      <form id="scheduleForm" class="modal-form">
+        <div class="form-group">
+          <label for="scheduleTime">Time</label>
+          <input type="time" id="scheduleTime" class="time-picker-input" required value="23:00">
+        </div>
+
+        <div class="form-group">
+          <label>Action</label>
+          <div class="action-toggle-row">
+            <button type="button" class="modal-action-btn active" data-action="OFF" id="actionBtnOff">Turn OFF</button>
+            <button type="button" class="modal-action-btn" data-action="ON" id="actionBtnOn">Turn ON</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="days-label-row">
+            <label>Repeat Days</label>
+            <div class="day-quick-selects">
+              <button type="button" class="day-link" id="selectEveryday">All</button>
+              <button type="button" class="day-link" id="selectWeekdays">Weekdays</button>
+              <button type="button" class="day-link" id="selectWeekends">Weekends</button>
+            </div>
+          </div>
+          <div class="days-grid" id="daysGrid">
+            <button type="button" class="day-btn active" data-day="0">M</button>
+            <button type="button" class="day-btn active" data-day="1">T</button>
+            <button type="button" class="day-btn active" data-day="2">W</button>
+            <button type="button" class="day-btn active" data-day="3">T</button>
+            <button type="button" class="day-btn active" data-day="4">F</button>
+            <button type="button" class="day-btn active" data-day="5">S</button>
+            <button type="button" class="day-btn active" data-day="6">S</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="scheduleLabel">Label (optional)</label>
+          <input type="text" id="scheduleLabel" class="text-input" placeholder="e.g. Night Sleep, Morning Warmup" maxlength="25">
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" id="btnCancelSchedule">Cancel</button>
+          <button type="submit" class="btn-save" id="btnSaveSchedule">Save Schedule</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Custom Countdown Modal Dialog -->
+  <dialog id="countdownModal" class="modal-dialog">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Custom Sleep Timer</h3>
+        <button class="modal-close-btn" id="btnCloseCountdownModal" aria-label="Close">&times;</button>
+      </div>
+      <form id="countdownForm" class="modal-form">
+        <div class="form-group">
+          <label>Action</label>
+          <div class="action-toggle-row">
+            <button type="button" class="modal-action-btn active" id="btnCustomActionOff" data-action="OFF">Turn OFF</button>
+            <button type="button" class="modal-action-btn" id="btnCustomActionOn" data-action="ON">Turn ON</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="customMinutes">Duration (minutes)</label>
+          <div class="stepper-input-row">
+            <button type="button" class="mini-step-btn" id="btnMinMins">-15</button>
+            <input type="number" id="customMinutes" class="number-picker-input" min="1" max="720" value="45" required>
+            <button type="button" class="mini-step-btn" id="btnPlusMins">+15</button>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" id="btnCancelCustomCountdown">Cancel</button>
+          <button type="submit" class="btn-save" id="btnStartCustomCountdown">Start Timer</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
 
   <script src="/static/app.js"></script>
 </body>

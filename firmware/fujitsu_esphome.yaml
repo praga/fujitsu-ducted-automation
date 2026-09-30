@@ -18,8 +18,8 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   fast_connect: true
-  power_save_mode: none
-  output_power: 17.5dBm
+  power_save_mode: light
+  output_power: 14.0dBm
   ap:
     ssid: "Fujitsu-AC-Fallback"
     password: "fallbackpassword"
@@ -28,7 +28,11 @@ captive_portal:
 
 logger:
   hardware_uart: USB_SERIAL_JTAG
-  level: DEBUG
+  level: INFO
+
+sensor:
+  - platform: internal_temperature
+    name: "ESP32 Core Temperature"
 
 web_server:
   port: 80
