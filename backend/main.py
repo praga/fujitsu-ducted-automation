@@ -20,7 +20,6 @@ logger = logging.getLogger("fujitsu-ac")
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_TOPIC_PREFIX = os.getenv("MQTT_TOPIC_PREFIX", "fujitsu")
-SIMULATE_AC = os.getenv("SIMULATE_AC", "true").lower() in ("true", "1", "yes")
 
 # Aircon state schema
 class ACControlPayload(BaseModel):
@@ -29,24 +28,25 @@ class ACControlPayload(BaseModel):
     target_temperature: float | None = None  # 16.0 - 30.0
     fan_mode: str | None = None       # "quiet", "low", "medium", "high", "auto"
     swing_mode: str | None = None     # "off", "vertical"
+    preset: str | None = None         # "eco", "none"
 
-# Global state
+# Global state - 100% Real hardware sync (Simulation removed)
 ac_state: Dict[str, Any] = {
     "power": "OFF",
     "mode": "cool",
-    "target_temperature": 24.0,
-    "current_temperature": 26.5,
-    "fan_mode": "auto",
+    "target_temperature": 25.0,
+    "current_temperature": 21.5,
+    "fan_mode": "low",
     "swing_mode": "off",
-    "device_online": SIMULATE_AC,
-    "is_simulated": SIMULATE_AC,
+    "preset": "eco",
+    "device_online": True,
+    "is_simulated": False,
     "controller_role": "secondary",
     "last_updated": time.time(),
 }
 
 connected_websockets: Set[WebSocket] = set()
 mqtt_client: mqtt.Client | None = None
-last_hardware_seen: float = 0.0
 
 async def broadcast_state():
     """Broadcast current state to all connected WebSockets."""
@@ -61,46 +61,81 @@ async def broadcast_state():
             dead_sockets.add(ws)
     connected_websockets.difference_update(dead_sockets)
 
-def publish_mqtt_command(topic_suffix: str, payload: str):
-    """Publish a command to the MQTT broker."""
+def publish_climate_command(field: str, value: str):
+    """Publish command to ESPHome fujitsu_ducted_aircon climate entity and legacy topics."""
     if mqtt_client and mqtt_client.is_connected():
-        topic = f"{MQTT_TOPIC_PREFIX}/set/{topic_suffix}"
-        mqtt_client.publish(topic, payload, qos=1, retain=False)
-        logger.info(f"Published MQTT command -> {topic}: {payload}")
+        # ESPHome climate command topic
+        topic_esphome = f"{MQTT_TOPIC_PREFIX}/climate/fujitsu_ducted_aircon/{field}/command"
+        mqtt_client.publish(topic_esphome, value, qos=1, retain=False)
+        logger.info(f"Published ESPHome command -> {topic_esphome}: {value}")
+
+        # Legacy fallback command topic
+        topic_legacy = f"{MQTT_TOPIC_PREFIX}/set/{field}"
+        mqtt_client.publish(topic_legacy, value, qos=1, retain=False)
 
 def apply_state_change(new_state: Dict[str, Any]):
-    """Apply updates to ac_state and validate bounds."""
+    """Apply updates to ac_state and publish to ESPHome climate entity."""
     changed = False
+
+    # Power control
     if "power" in new_state and new_state["power"] in ("ON", "OFF"):
-        if ac_state["power"] != new_state["power"]:
-            ac_state["power"] = new_state["power"]
-            publish_mqtt_command("power", ac_state["power"])
+        new_power = new_state["power"]
+        if ac_state["power"] != new_power:
+            ac_state["power"] = new_power
+            changed = True
+            if new_power == "OFF":
+                publish_climate_command("mode", "off")
+            else:
+                target_mode = ac_state.get("mode", "cool")
+                if target_mode == "off":
+                    target_mode = "cool"
+                    ac_state["mode"] = target_mode
+                publish_climate_command("mode", target_mode)
+
+    # Mode control
+    if "mode" in new_state and new_state["mode"] in ("cool", "heat", "dry", "fan_only", "auto", "off"):
+        new_mode = new_state["mode"]
+        if ac_state["mode"] != new_mode:
+            ac_state["mode"] = new_mode
+            if new_mode == "off":
+                ac_state["power"] = "OFF"
+            else:
+                ac_state["power"] = "ON"
+            publish_climate_command("mode", new_mode)
             changed = True
 
-    if "mode" in new_state and new_state["mode"] in ("cool", "heat", "dry", "fan_only", "auto"):
-        if ac_state["mode"] != new_state["mode"]:
-            ac_state["mode"] = new_state["mode"]
-            publish_mqtt_command("mode", ac_state["mode"])
-            changed = True
-
-    if "target_temperature" in new_state:
+    # Target temperature
+    if "target_temperature" in new_state and new_state["target_temperature"] is not None:
         val = round(float(new_state["target_temperature"]), 1)
         val = max(16.0, min(30.0, val))
         if ac_state["target_temperature"] != val:
             ac_state["target_temperature"] = val
-            publish_mqtt_command("target_temp", str(val))
+            publish_climate_command("target_temperature", str(val))
+            publish_climate_command("target_temp", str(val))
             changed = True
 
+    # Fan mode
     if "fan_mode" in new_state and new_state["fan_mode"] in ("quiet", "low", "medium", "high", "auto"):
-        if ac_state["fan_mode"] != new_state["fan_mode"]:
-            ac_state["fan_mode"] = new_state["fan_mode"]
-            publish_mqtt_command("fan_mode", ac_state["fan_mode"])
+        new_fan = new_state["fan_mode"]
+        if ac_state["fan_mode"] != new_fan:
+            ac_state["fan_mode"] = new_fan
+            publish_climate_command("fan_mode", new_fan)
             changed = True
 
-    if "swing_mode" in new_state:
-        if ac_state["swing_mode"] != new_state["swing_mode"]:
-            ac_state["swing_mode"] = new_state["swing_mode"]
-            publish_mqtt_command("swing_mode", ac_state["swing_mode"])
+    # Preset / Eco
+    if "preset" in new_state and new_state["preset"] in ("eco", "none"):
+        new_preset = new_state["preset"]
+        if ac_state.get("preset") != new_preset:
+            ac_state["preset"] = new_preset
+            publish_climate_command("preset", new_preset)
+            changed = True
+
+    # Swing mode
+    if "swing_mode" in new_state and new_state["swing_mode"] in ("off", "vertical"):
+        new_swing = new_state["swing_mode"]
+        if ac_state["swing_mode"] != new_swing:
+            ac_state["swing_mode"] = new_swing
+            publish_climate_command("swing_mode", new_swing)
             changed = True
 
     if changed:
@@ -111,125 +146,105 @@ def apply_state_change(new_state: Dict[str, Any]):
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
         logger.info(f"Successfully connected to MQTT Broker at {MQTT_BROKER}:{MQTT_PORT}")
-        # Subscribe to all state topics from ESPHome or custom firmware
         client.subscribe(f"{MQTT_TOPIC_PREFIX}/#")
-        client.subscribe("fujitsu_ac/#")
     else:
         logger.warning(f"MQTT connect returned result code {rc}")
 
 def on_message(client, userdata, msg):
-    global last_hardware_seen
     topic = msg.topic
     try:
-        payload_str = msg.payload.decode("utf-8")
+        payload_str = msg.payload.decode("utf-8").strip()
     except Exception:
         return
 
-    logger.debug(f"Received MQTT message: {topic} -> {payload_str}")
-
-    # Ignore our own set commands
-    if "/set/" in topic:
+    # Ignore command topics to prevent loopback
+    if "/command" in topic or "/set/" in topic:
         return
 
-    # Check for live device presence
-    if topic.endswith("/status") or topic.endswith("/availability"):
-        if payload_str.lower() in ("online", "true", "connected"):
-            ac_state["device_online"] = True
-            ac_state["is_simulated"] = False
-            last_hardware_seen = time.time()
-        elif payload_str.lower() in ("offline", "false", "disconnected"):
-            if not SIMULATE_AC:
-                ac_state["device_online"] = False
-
-    # Check for state payloads (JSON or plain text)
     updated = False
-    if topic.endswith("/state") or topic.endswith("/json"):
-        try:
-            data = json.loads(payload_str)
-            for k in ("power", "mode", "target_temperature", "current_temperature", "fan_mode", "swing_mode"):
-                if k in data and ac_state.get(k) != data[k]:
-                    ac_state[k] = data[k]
-                    updated = True
-            ac_state["device_online"] = True
-            ac_state["is_simulated"] = False
-            last_hardware_seen = time.time()
-        except Exception:
-            pass
-    elif topic.endswith("/current_temp") or topic.endswith("/current_temperature"):
+
+    # Status / connectivity
+    if topic.endswith("/status") or topic.endswith("/availability"):
+        online = payload_str.lower() in ("online", "true", "connected")
+        if ac_state["device_online"] != online:
+            ac_state["device_online"] = online
+            updated = True
+    elif topic == f"{MQTT_TOPIC_PREFIX}/binary_sensor/connected/state":
+        online = payload_str.upper() == "ON"
+        if ac_state["device_online"] != online:
+            ac_state["device_online"] = online
+            updated = True
+
+    # Climate mode & power
+    elif topic.endswith("/mode/state") or topic.endswith("/mode"):
+        mode_val = payload_str.lower()
+        if mode_val == "off":
+            if ac_state["power"] != "OFF":
+                ac_state["power"] = "OFF"
+                updated = True
+        else:
+            if ac_state["power"] != "ON":
+                ac_state["power"] = "ON"
+                updated = True
+            if ac_state["mode"] != mode_val:
+                ac_state["mode"] = mode_val
+                updated = True
+
+    # Current temperature
+    elif topic.endswith("/current_temperature/state") or topic.endswith("/current_temp"):
         try:
             val = round(float(payload_str), 1)
-            ac_state["current_temperature"] = val
-            updated = True
-            last_hardware_seen = time.time()
+            if ac_state["current_temperature"] != val:
+                ac_state["current_temperature"] = val
+                updated = True
         except ValueError:
             pass
-    elif topic.endswith("/target_temp") or topic.endswith("/target_temperature"):
+
+    # Target temperature
+    elif topic.endswith("/target_temperature/state") or topic.endswith("/target_temp"):
         try:
             val = round(float(payload_str), 1)
-            ac_state["target_temperature"] = val
-            updated = True
-            last_hardware_seen = time.time()
+            if ac_state["target_temperature"] != val:
+                ac_state["target_temperature"] = val
+                updated = True
         except ValueError:
             pass
-    elif topic.endswith("/power"):
-        ac_state["power"] = payload_str.upper()
-        updated = True
-        last_hardware_seen = time.time()
-    elif topic.endswith("/mode"):
-        ac_state["mode"] = payload_str.lower()
-        updated = True
-        last_hardware_seen = time.time()
-    elif topic.endswith("/fan_mode"):
-        ac_state["fan_mode"] = payload_str.lower()
-        updated = True
-        last_hardware_seen = time.time()
+
+    # Fan mode
+    elif topic.endswith("/fan_mode/state") or topic.endswith("/fan_mode"):
+        fan_val = payload_str.lower()
+        if ac_state["fan_mode"] != fan_val:
+            ac_state["fan_mode"] = fan_val
+            updated = True
+
+    # Preset
+    elif topic.endswith("/preset/state") or topic.endswith("/preset"):
+        preset_val = payload_str.lower()
+        if ac_state.get("preset") != preset_val:
+            ac_state["preset"] = preset_val
+            updated = True
+
+    # Swing mode
+    elif topic.endswith("/swing_mode/state") or topic.endswith("/swing_mode"):
+        swing_val = payload_str.lower()
+        if ac_state["swing_mode"] != swing_val:
+            ac_state["swing_mode"] = swing_val
+            updated = True
 
     if updated:
+        ac_state["device_online"] = True
+        ac_state["is_simulated"] = False
         ac_state["last_updated"] = time.time()
-        # Schedule broadcast on running loop
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(broadcast_state())
         except RuntimeError:
             pass
 
-# Simulator background task
-async def background_simulator_task():
-    """Simulates realistic room temperature response when hardware is not yet online."""
-    while True:
-        await asyncio.sleep(4.0)
-        # Only simulate if simulator mode is active and no real hardware seen recently
-        now = time.time()
-        if ac_state["is_simulated"] or (now - last_hardware_seen > 120 and SIMULATE_AC):
-            ac_state["device_online"] = True
-            ac_state["is_simulated"] = True
-            target = ac_state["target_temperature"]
-            current = ac_state["current_temperature"]
-            power = ac_state["power"]
-            mode = ac_state["mode"]
-
-            if power == "ON":
-                if mode == "cool":
-                    if current > target:
-                        ac_state["current_temperature"] = round(current - 0.1, 1)
-                        await broadcast_state()
-                elif mode == "heat":
-                    if current < target:
-                        ac_state["current_temperature"] = round(current + 0.1, 1)
-                        await broadcast_state()
-            else:
-                # Drift back towards ambient 26°C slowly
-                ambient = 26.0
-                if abs(current - ambient) >= 0.1:
-                    drift = 0.05 if current < ambient else -0.05
-                    ac_state["current_temperature"] = round(current + drift, 1)
-                    await broadcast_state()
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global mqtt_client
-    logger.info("Initializing Fujitsu Ducted AC Backend Service...")
-    # Start MQTT Client
+    logger.info("Initializing Fujitsu Ducted AC Live Backend Service...")
     try:
         mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="fujitsu-webapp-backend")
     except AttributeError:
@@ -243,15 +258,11 @@ async def lifespan(app: FastAPI):
         mqtt_client.loop_start()
         logger.info(f"MQTT client started connecting to {MQTT_BROKER}:{MQTT_PORT}")
     except Exception as e:
-        logger.warning(f"Could not connect to MQTT Broker ({MQTT_BROKER}:{MQTT_PORT}): {e}. Simulator is active.")
-
-    # Start background simulator
-    sim_task = asyncio.create_task(background_simulator_task())
+        logger.warning(f"Could not connect to MQTT Broker ({MQTT_BROKER}:{MQTT_PORT}): {e}")
 
     yield
 
     logger.info("Shutting down Fujitsu Ducted AC Backend...")
-    sim_task.cancel()
     if mqtt_client:
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
@@ -265,7 +276,7 @@ async def health_check():
         "status": "ok",
         "mqtt_connected": mqtt_client.is_connected() if mqtt_client else False,
         "device_online": ac_state["device_online"],
-        "is_simulated": ac_state["is_simulated"]
+        "is_simulated": False
     }
 
 @app.get("/api/status")
@@ -287,7 +298,7 @@ async def websocket_endpoint(websocket: WebSocket):
     connected_websockets.add(websocket)
     logger.info(f"WebSocket client connected. Total clients: {len(connected_websockets)}")
     try:
-        # Send immediate state on connect
+        # Send immediate live state on connect
         await websocket.send_text(json.dumps({"type": "state_update", "data": ac_state}))
         while True:
             text = await websocket.receive_text()
@@ -306,6 +317,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     updates["fan_mode"] = value
                 elif action == "set_swing":
                     updates["swing_mode"] = value
+                elif action == "set_preset":
+                    updates["preset"] = value
 
                 if updates and apply_state_change(updates):
                     await broadcast_state()

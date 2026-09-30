@@ -9,14 +9,17 @@ esphome:
   friendly_name: ${friendly_name}
 
 esp32:
-  board: esp32dev
+  board: esp32-c3-devkitm-1
   framework:
-    type: arduino
+    type: esp-idf
 
 # WiFi Configuration
 wifi:
-  ssid: "!secret wifi_ssid"
-  password: "!secret wifi_password"
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+  power_save_mode: none
+  output_power: 17.5dBm
   ap:
     ssid: "Fujitsu-AC-Fallback"
     password: "fallbackpassword"
@@ -24,38 +27,37 @@ wifi:
 captive_portal:
 
 logger:
-  level: INFO
-  baud_rate: 115200
+  hardware_uart: USB_SERIAL_JTAG
+  level: DEBUG
 
-# Web server for direct local web access on the ESP32 itself as backup
 web_server:
   port: 80
 
-# External FujiHeatPump Component
-# Proven open-source Fujitsu 3-wire bus integration
 external_components:
-  - source: github://Omniflux/esphome-fujitsu-halcyon@main
-    components: [fujitsu_halcyon]
+  - source: github://Omniflux/esphome-fujitsu-halcyon
 
-# Hardware UART for MCP2021A LIN Transceiver
+# Hardware UART for LIN Transceiver on ESP32-C3 SuperMini
 uart:
-  id: fujitsu_uart
-  tx_pin: GPIO17
-  rx_pin: GPIO16
+  tx_pin: GPIO21
+  rx_pin:
+    number: GPIO20
+    mode:
+      input: true
+      pullup: true
   baud_rate: 500
+  parity: EVEN
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
 
 climate:
-  - platform: fujitsu_halcyon
+  - platform: fujitsu-halcyon
     name: "Fujitsu Ducted Aircon"
-    uart_id: fujitsu_uart
-    # Configured as Secondary controller to work in parallel with your UTY-RVNYM wall remote
-    controller_type: secondary
-    visual:
-      min_temperature: 16.0
-      max_temperature: 30.0
-      temperature_step: 0.5
+    # 0=Primary (Master wall remote), 1=Secondary (our ESP32 wireless module)
+    controller_address: 1
+    autoconf: false
 
-# Mosquitto MQTT Connection (192.168.1.25)
 mqtt:
   broker: ${mqtt_broker}
   port: ${mqtt_port}
