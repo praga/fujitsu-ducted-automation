@@ -104,10 +104,10 @@ def apply_state_change(new_state: Dict[str, Any]):
             publish_climate_command("mode", new_mode)
             changed = True
 
-    # Target temperature
+    # Target temperature (Fujitsu uses whole integer degrees 16-30°C)
     if "target_temperature" in new_state and new_state["target_temperature"] is not None:
-        val = round(float(new_state["target_temperature"]), 1)
-        val = max(16.0, min(30.0, val))
+        val = int(round(float(new_state["target_temperature"])))
+        val = max(16, min(30, val))
         if ac_state["target_temperature"] != val:
             ac_state["target_temperature"] = val
             publish_climate_command("target_temperature", str(val))
@@ -203,7 +203,7 @@ def on_message(client, userdata, msg):
     # Target temperature
     elif topic.endswith("/target_temperature/state") or topic.endswith("/target_temp"):
         try:
-            val = round(float(payload_str), 1)
+            val = int(round(float(payload_str)))
             if ac_state["target_temperature"] != val:
                 ac_state["target_temperature"] = val
                 updated = True

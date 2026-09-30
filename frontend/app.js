@@ -57,9 +57,9 @@ function renderState(state) {
     roomTempEl.textContent = Number(currentACState.current_temperature).toFixed(1);
   }
 
-  // Target Temp
+  // Target Temp (Integer degrees for Fujitsu)
   if (currentACState.target_temperature !== undefined) {
-    targetTempEl.textContent = Number(currentACState.target_temperature).toFixed(1);
+    targetTempEl.textContent = Math.round(Number(currentACState.target_temperature));
   }
 
   // Power
@@ -173,13 +173,15 @@ btnPower.addEventListener("click", () => {
 });
 
 btnTempUp.addEventListener("click", () => {
-  const nextTemp = Math.min(30.0, Math.round((currentACState.target_temperature + 0.5) * 10) / 10);
+  const current = Math.round(Number(currentACState.target_temperature) || 24);
+  const nextTemp = Math.min(30, current + 1);
   renderState({ target_temperature: nextTemp });
   sendAction("set_temp", nextTemp);
 });
 
 btnTempDown.addEventListener("click", () => {
-  const nextTemp = Math.max(16.0, Math.round((currentACState.target_temperature - 0.5) * 10) / 10);
+  const current = Math.round(Number(currentACState.target_temperature) || 24);
+  const nextTemp = Math.max(16, current - 1);
   renderState({ target_temperature: nextTemp });
   sendAction("set_temp", nextTemp);
 });
@@ -195,14 +197,25 @@ modeButtons.forEach(btn => {
 fanButtons.forEach(btn => {
   btn.addEventListener("click", () => {
     const fan = btn.dataset.fan;
-    renderState({ fan_mode: fan });
+    const updates = { fan_mode: fan };
+    // If power is OFF, turn ON so fan speed takes effect on the AC
+    if (currentACState.power === "OFF") {
+      updates.power = "ON";
+      sendAction("set_power", "ON");
+    }
+    // In dry mode, fan speed is locked by Fujitsu; switch to cool so fan speed applies
+    if (currentACState.mode === "dry") {
+      updates.mode = "cool";
+      sendAction("set_mode", "cool");
+    }
+    renderState(updates);
     sendAction("set_fan", fan);
   });
 });
 
 presetButtons.forEach(btn => {
   btn.addEventListener("click", () => {
-    const temp = parseFloat(btn.dataset.preset);
+    const temp = parseInt(btn.dataset.preset, 10);
     renderState({ target_temperature: temp, power: "ON" });
     sendAction("set_temp", temp);
     sendAction("set_power", "ON");

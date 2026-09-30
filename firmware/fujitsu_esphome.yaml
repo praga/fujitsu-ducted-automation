@@ -57,6 +57,10 @@ climate:
     # 0=Primary (Master wall remote), 1=Secondary (our ESP32 wireless module)
     controller_address: 1
     autoconf: false
+    visual:
+      min_temperature: 16.0
+      max_temperature: 30.0
+      temperature_step: 1.0
 
 mqtt:
   broker: ${mqtt_broker}
