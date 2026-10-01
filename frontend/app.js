@@ -158,7 +158,7 @@ function renderState(state) {
   tempDial.classList.toggle("power-off", !isPowerOn || !isOnline);
 
   // Mode Theme & Badge
-  const curMode = currentACState.mode || "cool";
+  const curMode = (currentACState.mode === "heat_cool" ? "auto" : currentACState.mode) || "cool";
   const details = modeDetails[curMode] || modeDetails.cool;
   if (!isOnline) {
     activeModeBadge.textContent = "OFFLINE";

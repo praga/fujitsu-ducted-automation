@@ -104,7 +104,8 @@ def apply_state_change(new_state: Dict[str, Any], force: bool = False):
                 if target_mode == "off":
                     target_mode = "cool"
                     ac_state["mode"] = target_mode
-                publish_climate_command("mode", target_mode)
+                cmd_mode = "heat_cool" if target_mode == "auto" else target_mode
+                publish_climate_command("mode", cmd_mode)
 
     # Mode control
     if "mode" in new_state and new_state["mode"] in ("cool", "heat", "dry", "fan_only", "auto", "off"):
@@ -113,9 +114,11 @@ def apply_state_change(new_state: Dict[str, Any], force: bool = False):
             ac_state["mode"] = new_mode
             if new_mode == "off":
                 ac_state["power"] = "OFF"
+                publish_climate_command("mode", "off")
             else:
                 ac_state["power"] = "ON"
-            publish_climate_command("mode", new_mode)
+                cmd_mode = "heat_cool" if new_mode == "auto" else new_mode
+                publish_climate_command("mode", cmd_mode)
             changed = True
 
     # Target temperature (Fujitsu uses whole integer degrees 16-30°C)
@@ -195,6 +198,8 @@ def on_message(client, userdata, msg):
     # Climate mode & power
     elif topic.endswith("/mode/state") or topic.endswith("/mode"):
         mode_val = payload_str.lower()
+        if mode_val == "heat_cool":
+            mode_val = "auto"
         if mode_val == "off":
             if ac_state["power"] != "OFF":
                 ac_state["power"] = "OFF"
