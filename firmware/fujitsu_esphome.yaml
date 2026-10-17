@@ -1,7 +1,6 @@
 substitutions:
   name: "fujitsu-ac"
   friendly_name: "Fujitsu Ducted AC"
-  mqtt_broker: "192.168.1.25"
   mqtt_port: "1883"
 
 esphome:
@@ -22,7 +21,7 @@ wifi:
   output_power: 14.0dBm
   ap:
     ssid: "Fujitsu-AC-Fallback"
-    password: "fallbackpassword"
+    password: !secret ap_password
 
 captive_portal:
 
@@ -67,7 +66,7 @@ climate:
       temperature_step: 1.0
 
 mqtt:
-  broker: ${mqtt_broker}
+  broker: !secret mqtt_broker
   port: ${mqtt_port}
   topic_prefix: fujitsu
   birth_message:

@@ -20,7 +20,7 @@ A complete local smart thermostat solution for Fujitsu ducted air conditioners u
             │ WiFi (MQTT)
             ▼
 ┌────────────────────────────────────────────────────────────┐
-│ Portainer / Docker Server (192.168.1.25)                   │
+│ Portainer / Docker Server (e.g. 192.168.1.100)             │
 │                                                            │
 │   ├── Mosquitto MQTT Broker (Port 1883 & 9001)             │
 │   └── Mobile WebApp Container (Port 8188 -> 8085)          │
@@ -55,15 +55,15 @@ During initial setup and testing, **power the ESP32 via USB**. Leave the buck co
 
 ---
 
-## Portainer Deployment (Local Server `192.168.1.25`)
+## Portainer Deployment (Local Docker Host)
 
-1. Open Portainer at `https://192.168.1.25:31015`.
+1. Open your Portainer dashboard (e.g. `https://<YOUR_DOCKER_HOST_IP>:9443` or your configured port).
 2. Navigate to **Stacks** -> **Add stack**.
 3. Name: `fujitsu-ducted-automation`.
 4. Paste the contents of `docker-compose.yml` or connect to this Git repository.
 5. Click **Deploy the stack**.
 6. Access your mobile dashboard at:  
-   👉 **`http://192.168.1.25:8188`**
+   👉 **`http://<YOUR_DOCKER_HOST_IP>:8188`**
 
 ---
 

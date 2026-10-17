@@ -15,7 +15,7 @@ const char* WIFI_SSID = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
 // MQTT Broker Settings (Your local Docker server)
-const char* MQTT_SERVER = "192.168.1.25";
+const char* MQTT_SERVER = "192.168.1.100"; // Replace with your MQTT Broker IP
 const int   MQTT_PORT   = 1883;
 const char* MQTT_CLIENT_ID = "esp32-fujitsu-ac";
 
