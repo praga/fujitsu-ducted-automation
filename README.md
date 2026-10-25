@@ -23,11 +23,12 @@ A complete local smart thermostat solution for Fujitsu ducted air conditioners u
 │ Portainer / Docker Server (e.g. 192.168.1.100)             │
 │                                                            │
 │   ├── Mosquitto MQTT Broker (Port 1883 & 9001)             │
-│   └── Mobile WebApp Container (Port 8188 -> 8085)          │
-└───────────────────────────┬────────────────────────────────┘
-                            │ HTTP & WebSockets
-                            ▼
-           [Mobile Phone / Tablet Browser (PWA)]
+│   ├── Mobile WebApp Container (Port 8188 -> 8085)          │
+│   └── Matterbridge Container (Port 8283 / Matter UDP 5540) │
+└─────────────┬───────────────────────────────┬──────────────┘
+              │ HTTP & WebSockets             │ Local Matter (mDNS/UDP)
+              ▼                               ▼
+ [Mobile Browser / PWA Dial]     [Google Home / Nest Speakers]
 ```
 
 ---
@@ -62,32 +63,78 @@ During initial setup and testing, **power the ESP32 via USB**. Leave the buck co
 3. Name: `fujitsu-ducted-automation`.
 4. Paste the contents of `docker-compose.yml` or connect to this Git repository.
 5. Click **Deploy the stack**.
-6. Access your mobile dashboard at:  
-   👉 **`http://<YOUR_DOCKER_HOST_IP>:8188`**
+6. Access your dashboards:  
+   👉 **Mobile WebApp:** `http://<YOUR_DOCKER_HOST_IP>:8188`  
+   👉 **Matterbridge UI:** `http://<YOUR_DOCKER_HOST_IP>:8283`
+
+---
+
+## Google Home Integration (via Local Matter Bridge)
+
+Control your Fujitsu Ducted Aircon directly using **Google Assistant voice commands** and the **Google Home app** without any cloud subscriptions or external webhooks. This setup uses **[Matterbridge](https://github.com/Luligu/matterbridge)** to expose your aircon as a native Matter **Thermostat** on your local network.
+
+### Setup Steps:
+1. **Open Matterbridge Web UI**:
+   Navigate to `http://<YOUR_DOCKER_HOST_IP>:8283`.
+2. **Install the MQTT Plugin**:
+   Go to **Plugins** ➡️ search for `matterbridge-mqtt-devices` ➡️ click **Install**.
+3. **Configure the Broker**:
+   Set the MQTT broker host to `127.0.0.1` (or your Docker host IP) and port `1883`.
+4. **Add Thermostat Device**:
+   - Device Type: **Thermostat**
+   - Device Name: `Fujitsu Ducted Aircon`
+   - Map the topics as follows:
+     * **Current Temperature**: `fujitsu/climate/fujitsu_ducted_aircon/current_temperature/state`
+     * **Target Temperature State**: `fujitsu/climate/fujitsu_ducted_aircon/target_temperature/state`
+     * **Target Temperature Set**: `fujitsu/climate/fujitsu_ducted_aircon/target_temperature/command`
+     * **System Mode State**: `fujitsu/climate/fujitsu_ducted_aircon/mode/state`
+     * **System Mode Set**: `fujitsu/climate/fujitsu_ducted_aircon/mode/command`
+     * **Fan Mode State**: `fujitsu/climate/fujitsu_ducted_aircon/fan_mode/state`
+     * **Fan Mode Set**: `fujitsu/climate/fujitsu_ducted_aircon/fan_mode/command`
+     * **Availability**: `fujitsu/status`
+5. **Restart Matterbridge**:
+   Click restart in the Matterbridge UI to initialize the Matter accessory.
+6. **Pair with Google Home**:
+   - Ensure your phone is connected to the same Wi-Fi network as your Google Nest speakers.
+   - Open the **Google Home** app.
+   - Tap **Devices** ➡️ **+ (Add)** ➡️ **Matter device**.
+   - Scan the **Matter QR Code** displayed on the Matterbridge dashboard (or enter the manual pairing code).
+   - Assign the thermostat to your desired room (e.g., *Living Room*).
+
+### Example Google Assistant Voice Commands:
+* *"Hey Google, set the aircon to 23 degrees"*
+* *"Hey Google, make it cooler"* / *"Hey Google, increase temperature by 2 degrees"*
+* *"Hey Google, turn on the aircon"* / *"Hey Google, turn off the aircon"*
+* *"Hey Google, set aircon to Cool mode"* / *"Hey Google, set aircon to Heat mode"*
+* *"Hey Google, what is the temperature in the living room?"*
 
 ---
 
 ## Mobile Web App Features (PWA)
 
-* **Touch Dial:** Large temperature target dial with 0.5°C step adjustment.
+* **Touch Dial:** Large temperature target dial with 1.0°C step adjustment matching hardware.
 * **Ambient Sensor:** Real-time room temperature synchronization.
 * **Modes:** Cool ❄️, Heat ☀️, Dry 💧, Fan 🌀, Auto 🔄.
 * **Fan Speeds:** Quiet, Low, Med, High, Auto.
 * **Quick Presets:** Chill (21°C), Comfort (24°C), Eco (26°C).
 * **Live Sync:** Bidirectional WebSocket state updates with optimistic response.
 * **Add to Home Screen:** Fully supports iOS / Android PWA installation with custom app icon.
-* **Mock Simulator Engine:** Allows immediate interactive UI testing before physical hardware is connected.
+* **Sleep & Recurring Timers:** Built-in sleep countdown and daily on/off automation schedules.
 
 ---
 
 ## MQTT Topic Reference
 
-| Topic | Payload | Direction |
-| :--- | :--- | :--- |
-| `fujitsu/status` | `online` / `offline` | Device -> Broker |
-| `fujitsu/state` | Full JSON state object | Device -> Broker |
-| `fujitsu/current_temp` | Float string (e.g. `24.5`) | Device -> Broker |
-| `fujitsu/set/power` | `ON` / `OFF` | WebApp -> Device |
-| `fujitsu/set/target_temp`| Float string (e.g. `23.5`) | WebApp -> Device |
-| `fujitsu/set/mode` | `cool`, `heat`, `dry`, `fan_only`, `auto` | WebApp -> Device |
-| `fujitsu/set/fan_mode` | `quiet`, `low`, `medium`, `high`, `auto` | WebApp -> Device |
+| Topic | Payload | Direction | Description |
+| :--- | :--- | :--- | :--- |
+| `fujitsu/status` | `online` / `offline` | ESP32 -> Broker | ESP32 hardware connection status |
+| `fujitsu/climate/fujitsu_ducted_aircon/mode/state` | `off`, `cool`, `heat`, `dry`, `fan_only`, `heat_cool` | ESP32 -> Broker | Active HVAC system mode |
+| `fujitsu/climate/fujitsu_ducted_aircon/mode/command` | `off`, `cool`, `heat`, `dry`, `fan_only`, `heat_cool`, `auto` | Matter / WebApp -> ESP32 | Target HVAC mode command |
+| `fujitsu/climate/fujitsu_ducted_aircon/current_temperature/state` | Float (e.g. `24.0`) | ESP32 -> Broker | Ambient indoor temperature |
+| `fujitsu/climate/fujitsu_ducted_aircon/target_temperature/state` | Int (e.g. `25`) | ESP32 -> Broker | Active setpoint temperature |
+| `fujitsu/climate/fujitsu_ducted_aircon/target_temperature/command` | Int (e.g. `24`) | Matter / WebApp -> ESP32 | Target setpoint command |
+| `fujitsu/climate/fujitsu_ducted_aircon/fan_mode/state` | `quiet`, `low`, `medium`, `high`, `auto` | ESP32 -> Broker | Active fan speed |
+| `fujitsu/climate/fujitsu_ducted_aircon/fan_mode/command` | `quiet`, `low`, `medium`, `high`, `auto` | Matter / WebApp -> ESP32 | Target fan speed command |
+| `fujitsu/set/power` | `ON` / `OFF` | External -> WebApp | Universal power toggle |
+| `fujitsu/set/target_temp`| Int (e.g. `23`) | External -> WebApp | Universal temperature command |
+| `fujitsu/set/mode` | `cool`, `heat`, `dry`, `fan_only`, `auto`, `off` | External -> WebApp | Universal mode command |

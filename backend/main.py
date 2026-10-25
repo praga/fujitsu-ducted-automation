@@ -174,8 +174,41 @@ def on_message(client, userdata, msg):
     except Exception:
         return
 
-    # Ignore command topics to prevent loopback
-    if "/command" in topic or "/set/" in topic:
+    # Normalize "auto" mode command from Matter / external clients to ESPHome's "heat_cool"
+    if topic == f"{MQTT_TOPIC_PREFIX}/climate/fujitsu_ducted_aircon/mode/command":
+        if payload_str.lower() == "auto":
+            logger.info("Normalizing Matter mode command: 'auto' -> 'heat_cool'")
+            publish_climate_command("mode", "heat_cool")
+        return
+
+    # Handle external /set/ command topics (e.g. from Matterbridge or custom scripts)
+    if topic.startswith(f"{MQTT_TOPIC_PREFIX}/set/"):
+        field = topic[len(f"{MQTT_TOPIC_PREFIX}/set/"):]
+        changed = False
+        if field == "power":
+            changed = apply_state_change({"power": payload_str.upper()})
+        elif field == "mode":
+            changed = apply_state_change({"mode": payload_str.lower()})
+        elif field in ("target_temp", "target_temperature"):
+            try:
+                changed = apply_state_change({"target_temperature": float(payload_str)})
+            except ValueError:
+                pass
+        elif field == "fan_mode":
+            changed = apply_state_change({"fan_mode": payload_str.lower()})
+        elif field == "preset":
+            changed = apply_state_change({"preset": payload_str.lower()})
+
+        if changed:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(broadcast_state())
+            except RuntimeError:
+                pass
+        return
+
+    # Ignore other command topics to prevent loopback
+    if "/command" in topic:
         return
 
     updated = False

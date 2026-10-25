@@ -67,8 +67,25 @@ services:
       retries: 3
       start_period: 30s
 
+  matterbridge:
+    image: luligu/matterbridge:latest
+    container_name: fujitsu-matterbridge
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Kuala_Lumpur
+    volumes:
+      - matterbridge-data:/root/.matterbridge
+      - matterbridge-plugins:/root/Matterbridge
+      - matterbridge-certs:/root/.mattercert
+
 volumes:
   mosquitto-data:
   mosquitto-log:
   fujitsu-app-repo:
   fujitsu-app-data:
+  matterbridge-data:
+  matterbridge-plugins:
+  matterbridge-certs:
