@@ -239,7 +239,11 @@ def on_message(client, userdata, msg):
             except ValueError:
                 pass
         elif field == "fan_mode":
-            changed = apply_state_change({"fan_mode": payload_str.lower()})
+            target_fan = payload_str.lower()
+            if target_fan == "med":
+                target_fan = "medium"
+            pending_commands["fan_mode"] = (target_fan, time.time() + 6.0)
+            changed = apply_state_change({"fan_mode": target_fan})
         elif field == "preset":
             changed = apply_state_change({"preset": payload_str.lower()})
 
@@ -336,6 +340,14 @@ def on_message(client, userdata, msg):
     # Fan mode
     elif topic.endswith("/fan_mode/state") or topic.endswith("/fan_mode"):
         fan_val = payload_str.lower()
+        if "fan_mode" in pending_commands:
+            expected_f, expiry = pending_commands["fan_mode"]
+            if time.time() < expiry and fan_val != expected_f:
+                logger.info(f"Ignoring intermediate ESPHome fan mode state '{fan_val}' during transition to '{expected_f}'")
+                return
+            else:
+                pending_commands.pop("fan_mode", None)
+
         if ac_state["fan_mode"] != fan_val:
             ac_state["fan_mode"] = fan_val
             updated = True
