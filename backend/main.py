@@ -118,21 +118,25 @@ def apply_state_change(new_state: Dict[str, Any], force: bool = False):
                 publish_climate_command("mode", cmd_mode)
 
     # Mode control
-    if "mode" in new_state and new_state["mode"] in ("cool", "heat", "dry", "fan_only", "auto", "off"):
-        new_mode = new_state["mode"]
-        mode_changed = ac_state["mode"] != new_mode
-        power_needs_on = (new_mode != "off" and ac_state["power"] != "ON")
-        power_needs_off = (new_mode == "off" and ac_state["power"] != "OFF")
-        if force or mode_changed or power_needs_on or power_needs_off:
-            ac_state["mode"] = new_mode
-            if new_mode == "off":
-                ac_state["power"] = "OFF"
-                publish_climate_command("mode", "off")
-            else:
-                ac_state["power"] = "ON"
-                cmd_mode = "heat_cool" if new_mode == "auto" else new_mode
-                publish_climate_command("mode", cmd_mode)
-            changed = True
+    if "mode" in new_state:
+        raw_mode = str(new_state["mode"]).lower()
+        if raw_mode == "fan":
+            raw_mode = "fan_only"
+        if raw_mode in ("cool", "heat", "dry", "fan_only", "auto", "off"):
+            new_mode = raw_mode
+            mode_changed = ac_state["mode"] != new_mode
+            power_needs_on = (new_mode != "off" and ac_state["power"] != "ON")
+            power_needs_off = (new_mode == "off" and ac_state["power"] != "OFF")
+            if force or mode_changed or power_needs_on or power_needs_off:
+                ac_state["mode"] = new_mode
+                if new_mode == "off":
+                    ac_state["power"] = "OFF"
+                    publish_climate_command("mode", "off")
+                else:
+                    ac_state["power"] = "ON"
+                    cmd_mode = "heat_cool" if new_mode == "auto" else new_mode
+                    publish_climate_command("mode", cmd_mode)
+                changed = True
 
     # Target temperature (Fujitsu uses whole integer degrees 16-30°C)
     if "target_temperature" in new_state and new_state["target_temperature"] is not None:
