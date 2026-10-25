@@ -71,7 +71,9 @@ services:
     image: luligu/matterbridge:latest
     container_name: fujitsu-matterbridge
     restart: unless-stopped
-    network_mode: host
+    ports:
+      - "8283:8283"
+      - "5540-5550:5540-5550/udp"
     environment:
       - PUID=1000
       - PGID=1000
