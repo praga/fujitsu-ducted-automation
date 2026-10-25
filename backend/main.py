@@ -291,7 +291,7 @@ def on_message(client, userdata, msg):
             if ac_state["current_temperature"] != val:
                 ac_state["current_temperature"] = val
                 updated = True
-                publish_matter_state("current_temperature", val)
+            publish_matter_state("current_temperature", val)
         except ValueError:
             pass
 
