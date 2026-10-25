@@ -145,9 +145,19 @@ def apply_state_change(new_state: Dict[str, Any], force: bool = False):
             changed = True
 
     # Fan mode
-    if "fan_mode" in new_state and new_state["fan_mode"] in ("quiet", "low", "medium", "high", "auto"):
-        new_fan = new_state["fan_mode"]
-        if ac_state["fan_mode"] != new_fan:
+    if "fan_mode" in new_state:
+        raw_fan = str(new_state["fan_mode"]).lower()
+        fan_map = {
+            "quiet": "quiet",
+            "low": "low",
+            "med": "medium",
+            "medium": "medium",
+            "high": "high",
+            "auto": "auto",
+            "on": "auto"
+        }
+        new_fan = fan_map.get(raw_fan)
+        if new_fan and (force or ac_state["fan_mode"] != new_fan):
             ac_state["fan_mode"] = new_fan
             publish_climate_command("fan_mode", new_fan)
             changed = True
@@ -174,6 +184,7 @@ def apply_state_change(new_state: Dict[str, Any], force: bool = False):
         matter_mode = "off" if ac_state.get("power") == "OFF" else ac_state.get("mode", "off")
         publish_matter_state("mode", matter_mode)
         publish_matter_state("target_temperature", ac_state.get("target_temperature", 24))
+        publish_matter_state("fan_mode", ac_state.get("fan_mode", "auto"))
     return changed
 
 # MQTT callbacks
@@ -186,6 +197,7 @@ def on_connect(client, userdata, flags, rc, properties=None):
         publish_matter_state("mode", initial_mode)
         publish_matter_state("target_temperature", ac_state.get("target_temperature", 24))
         publish_matter_state("current_temperature", ac_state.get("current_temperature", 24))
+        publish_matter_state("fan_mode", ac_state.get("fan_mode", "auto"))
     else:
         logger.warning(f"MQTT connect returned result code {rc}")
 
@@ -323,6 +335,7 @@ def on_message(client, userdata, msg):
         if ac_state["fan_mode"] != fan_val:
             ac_state["fan_mode"] = fan_val
             updated = True
+            publish_matter_state("fan_mode", fan_val)
 
     # Preset
     elif topic.endswith("/preset/state") or topic.endswith("/preset"):

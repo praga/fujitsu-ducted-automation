@@ -21,7 +21,7 @@ const thermostatDeviceType = mb['thermostat'] ??
 export const thermostatDescriptor = {
     type: 'thermostat',
     editableKeys: {
-        publish: ['topicSetTargetTemp', 'topicSetSystemMode'],
+        publish: ['topicSetTargetTemp', 'topicSetSystemMode', 'topicSetFanMode', 'topicSetSpeed'],
         subscribe: [
             ...COMMON_SUBSCRIBE_KEYS,
             'topicLocalTemp',
@@ -30,6 +30,8 @@ export const thermostatDescriptor = {
             'payloadTargetTempJsonPath',
             'topicSystemMode',
             'payloadSystemModeJsonPath',
+            'topicFanMode',
+            'payloadFanModeJsonPath',
             'topicOccupancy',
             'payloadOccupancyJsonPath',
         ],
@@ -46,6 +48,9 @@ export const thermostatDescriptor = {
         // Initialize with realistic HVAC defaults: 24°C target, 0 deadband, 16-30°C range
         ep.createDefaultThermostatClusterServer(24, 24, 24, 0, 16, 30, 16, 30);
         ctx.setAttr(ep, CID.Thermostat, 'minSetpointDeadBand', 0);
+
+        // Add FanControl cluster server
+        ep.createDefaultFanControlClusterServer();
 
         // Listen for heating setpoint writes from Matter controllers (e.g. Google Home in Heat mode)
         void ep.subscribeAttribute('Thermostat', 'occupiedHeatingSetpoint', (newValue) => {
@@ -69,6 +74,30 @@ export const thermostatDescriptor = {
             const s = SYSTEM_MODE_STR[newValue] ?? String(newValue);
             if (cfg.topicSetSystemMode)
                 ctx.publish(cfg.topicSetSystemMode, s, cfg.retain);
+        }, ctx.log);
+
+        // FanControl listeners
+        const FAN_MODE_STR = { 0: 'off', 1: 'low', 2: 'medium', 3: 'high', 4: 'on', 5: 'auto', 6: 'smart' };
+        const FAN_MODE_NUM = { off: 0, quiet: 1, low: 1, med: 2, medium: 2, high: 3, on: 4, auto: 5, smart: 6 };
+
+        void ep.subscribeAttribute('FanControl', 'fanMode', (newValue) => {
+            const s = FAN_MODE_STR[newValue] ?? String(newValue);
+            if (cfg.topicSetFanMode)
+                ctx.publish(cfg.topicSetFanMode, s, cfg.retain);
+        }, ctx.log);
+
+        void ep.subscribeAttribute('FanControl', 'percentSetting', (newPct) => {
+            if (cfg.topicSetSpeed)
+                ctx.publish(cfg.topicSetSpeed, String(newPct), cfg.retain);
+            if (cfg.topicSetFanMode) {
+                let fMode = 'auto';
+                if (newPct === 0) fMode = 'off';
+                else if (newPct <= 25) fMode = 'quiet';
+                else if (newPct <= 50) fMode = 'low';
+                else if (newPct <= 75) fMode = 'medium';
+                else fMode = 'high';
+                ctx.publish(cfg.topicSetFanMode, fMode, cfg.retain);
+            }
         }, ctx.log);
 
         // Handle incoming systemMode from MQTT
@@ -102,6 +131,13 @@ export const thermostatDescriptor = {
                         runningMode = 3;
                         runningState.cool = true;
                         runningState.fan = true;
+                    } else if (mode === 7) { // Fan only
+                        runningMode = 0;
+                        runningState.fan = true;
+                    } else if (mode === 8) { // Dry
+                        runningMode = 3;
+                        runningState.cool = true;
+                        runningState.fan = true;
                     }
                     ctx.setAttr(ep, CID.Thermostat, 'thermostatRunningMode', runningMode);
                     ctx.setAttr(ep, CID.Thermostat, 'thermostatRunningState', runningState);
@@ -131,6 +167,25 @@ export const thermostatDescriptor = {
             });
         }
 
+        // Handle fan mode updates from MQTT
+        if (cfg.topicFanMode) {
+            ctx.subscribe(cfg.topicFanMode, (p) => {
+                const raw = ctx.toPayloadString(ctx.extractPayloadValue(p, cfg.payloadFanModeJsonPath)).toLowerCase();
+                const mode = FAN_MODE_NUM[raw] ?? parseInt(raw, 10);
+                if (Number.isFinite(mode)) {
+                    ctx.setAttr(ep, CID.FanControl, 'fanMode', mode);
+                    let pct = 50;
+                    if (raw === 'quiet') pct = 25;
+                    else if (raw === 'low') pct = 50;
+                    else if (raw === 'medium') pct = 75;
+                    else if (raw === 'high') pct = 100;
+                    else if (raw === 'auto') pct = 50;
+                    ctx.setAttr(ep, CID.FanControl, 'percentSetting', pct);
+                    ctx.setAttr(ep, CID.FanControl, 'percentCurrent', pct);
+                }
+            });
+        }
+
         // Handle occupancy updates
         if (cfg.topicOccupancy) {
             ctx.subscribe(cfg.topicOccupancy, (p) => {
@@ -143,6 +198,6 @@ export const thermostatDescriptor = {
         await ctx.registerDevice(ep);
         ctx.subscribeToAvailabilityAndBattery(ep, cfg);
         ctx.endpointMap.set(cfg.id ?? '', ep);
-        ctx.log.info(`✓ thermostat "${cfg.name}" ready`);
+        ctx.log.info(`✓ thermostat "${cfg.name}" ready (with FanControl)`);
     },
 };
