@@ -310,7 +310,7 @@ def on_message(client, userdata, msg):
                 else:
                     pending_commands.pop("target_temp", None)
 
-            if force or ac_state["target_temperature"] != val:
+            if ac_state["target_temperature"] != val:
                 ac_state["target_temperature"] = val
                 updated = True
                 publish_matter_state("target_temperature", val)
