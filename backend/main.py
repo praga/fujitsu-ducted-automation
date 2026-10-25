@@ -83,6 +83,16 @@ def publish_climate_command(field: str, value: str):
         topic_legacy = f"{MQTT_TOPIC_PREFIX}/set/{field}"
         mqtt_client.publish(topic_legacy, value, qos=1, retain=False)
 
+def publish_matter_state(field: str, value: Any):
+    """Publish synchronized state to Matterbridge topic."""
+    if mqtt_client and mqtt_client.is_connected():
+        topic = f"{MQTT_TOPIC_PREFIX}/matter/{field}/state"
+        mqtt_client.publish(topic, str(value), qos=1, retain=True)
+        logger.debug(f"Published Matter state -> {topic}: {value}")
+
+# Transition guards for commands to prevent loopback during bus propagation
+pending_commands: Dict[str, Tuple[str, float]] = {}
+
 def apply_state_change(new_state: Dict[str, Any], force: bool = False):
     """Apply updates to ac_state and publish to ESPHome climate entity."""
     if not ac_state.get("device_online", False):
@@ -157,6 +167,10 @@ def apply_state_change(new_state: Dict[str, Any], force: bool = False):
 
     if changed:
         ac_state["last_updated"] = time.time()
+        # Immediately synchronize state to Matterbridge
+        matter_mode = "off" if ac_state.get("power") == "OFF" else ac_state.get("mode", "off")
+        publish_matter_state("mode", matter_mode)
+        publish_matter_state("target_temperature", ac_state.get("target_temperature", 24))
     return changed
 
 # MQTT callbacks
@@ -164,6 +178,11 @@ def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
         logger.info(f"Successfully connected to MQTT Broker at {MQTT_BROKER}:{MQTT_PORT}")
         client.subscribe(f"{MQTT_TOPIC_PREFIX}/#")
+        # Publish initial retained state for Matterbridge
+        initial_mode = "off" if ac_state.get("power") == "OFF" else ac_state.get("mode", "off")
+        publish_matter_state("mode", initial_mode)
+        publish_matter_state("target_temperature", ac_state.get("target_temperature", 24))
+        publish_matter_state("current_temperature", ac_state.get("current_temperature", 24))
     else:
         logger.warning(f"MQTT connect returned result code {rc}")
 
@@ -186,12 +205,18 @@ def on_message(client, userdata, msg):
         field = topic[len(f"{MQTT_TOPIC_PREFIX}/set/"):]
         changed = False
         if field == "power":
-            changed = apply_state_change({"power": payload_str.upper()})
+            target_p = payload_str.upper()
+            pending_commands["power"] = (target_p, time.time() + 6.0)
+            changed = apply_state_change({"power": target_p})
         elif field == "mode":
-            changed = apply_state_change({"mode": payload_str.lower()})
+            target_m = payload_str.lower()
+            pending_commands["mode"] = (target_m, time.time() + 6.0)
+            changed = apply_state_change({"mode": target_m})
         elif field in ("target_temp", "target_temperature"):
             try:
-                changed = apply_state_change({"target_temperature": float(payload_str)})
+                target_t = float(payload_str)
+                pending_commands["target_temp"] = (str(int(round(target_t))), time.time() + 6.0)
+                changed = apply_state_change({"target_temperature": target_t})
             except ValueError:
                 pass
         elif field == "fan_mode":
@@ -207,8 +232,8 @@ def on_message(client, userdata, msg):
                 pass
         return
 
-    # Ignore other command topics to prevent loopback
-    if "/command" in topic:
+    # Ignore other command topics and matter state topics to prevent loopback
+    if "/command" in topic or "/matter/" in topic:
         return
 
     updated = False
@@ -233,6 +258,16 @@ def on_message(client, userdata, msg):
         mode_val = payload_str.lower()
         if mode_val == "heat_cool":
             mode_val = "auto"
+
+        # Check transition guard for mode
+        if "mode" in pending_commands:
+            expected_m, expiry = pending_commands["mode"]
+            if time.time() < expiry and mode_val != expected_m:
+                logger.info(f"Ignoring intermediate ESPHome mode state '{mode_val}' during transition to '{expected_m}'")
+                return
+            else:
+                pending_commands.pop("mode", None)
+
         if mode_val == "off":
             if ac_state["power"] != "OFF":
                 ac_state["power"] = "OFF"
@@ -245,6 +280,10 @@ def on_message(client, userdata, msg):
                 ac_state["mode"] = mode_val
                 updated = True
 
+        if updated:
+            matter_mode = "off" if ac_state["power"] == "OFF" else ac_state["mode"]
+            publish_matter_state("mode", matter_mode)
+
     # Current temperature
     elif topic.endswith("/current_temperature/state") or topic.endswith("/current_temp"):
         try:
@@ -252,6 +291,7 @@ def on_message(client, userdata, msg):
             if ac_state["current_temperature"] != val:
                 ac_state["current_temperature"] = val
                 updated = True
+                publish_matter_state("current_temperature", val)
         except ValueError:
             pass
 
@@ -259,9 +299,18 @@ def on_message(client, userdata, msg):
     elif topic.endswith("/target_temperature/state") or topic.endswith("/target_temp"):
         try:
             val = int(round(float(payload_str)))
+            if "target_temp" in pending_commands:
+                expected_t, expiry = pending_commands["target_temp"]
+                if time.time() < expiry and str(val) != expected_t:
+                    logger.info(f"Ignoring intermediate ESPHome target temp '{val}' during transition to '{expected_t}'")
+                    return
+                else:
+                    pending_commands.pop("target_temp", None)
+
             if ac_state["target_temperature"] != val:
                 ac_state["target_temperature"] = val
                 updated = True
+                publish_matter_state("target_temperature", val)
         except ValueError:
             pass
 
