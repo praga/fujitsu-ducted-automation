@@ -71,9 +71,6 @@ services:
     image: luligu/matterbridge:latest
     container_name: fujitsu-matterbridge
     restart: unless-stopped
-    ports:
-      - "8283:8283"
-      - "5540-5550:5540-5550/udp"
     environment:
       - PUID=1000
       - PGID=1000
@@ -82,6 +79,12 @@ services:
       - matterbridge-data:/root/.matterbridge
       - matterbridge-plugins:/root/Matterbridge
       - matterbridge-certs:/root/.mattercert
+    networks:
+      matter-lan:
+        ipv4_address: 192.168.1.242
+      default:
+    depends_on:
+      - mosquitto
 
 volumes:
   mosquitto-data:
@@ -91,3 +94,17 @@ volumes:
   matterbridge-data:
   matterbridge-plugins:
   matterbridge-certs:
+
+networks:
+  default:
+  matter-lan:
+    name: matter-lan
+    driver: macvlan
+    enable_ipv6: true
+    driver_opts:
+      parent: enp2s0
+    ipam:
+      config:
+        - subnet: 192.168.1.0/24
+          gateway: 192.168.1.1
+          ip_range: 192.168.1.240/29
