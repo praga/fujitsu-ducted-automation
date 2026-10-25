@@ -120,7 +120,10 @@ def apply_state_change(new_state: Dict[str, Any], force: bool = False):
     # Mode control
     if "mode" in new_state and new_state["mode"] in ("cool", "heat", "dry", "fan_only", "auto", "off"):
         new_mode = new_state["mode"]
-        if ac_state["mode"] != new_mode:
+        mode_changed = ac_state["mode"] != new_mode
+        power_needs_on = (new_mode != "off" and ac_state["power"] != "ON")
+        power_needs_off = (new_mode == "off" and ac_state["power"] != "OFF")
+        if force or mode_changed or power_needs_on or power_needs_off:
             ac_state["mode"] = new_mode
             if new_mode == "off":
                 ac_state["power"] = "OFF"
@@ -135,7 +138,7 @@ def apply_state_change(new_state: Dict[str, Any], force: bool = False):
     if "target_temperature" in new_state and new_state["target_temperature"] is not None:
         val = int(round(float(new_state["target_temperature"])))
         val = max(16, min(30, val))
-        if ac_state["target_temperature"] != val:
+        if force or ac_state["target_temperature"] != val:
             ac_state["target_temperature"] = val
             publish_climate_command("target_temperature", str(val))
             publish_climate_command("target_temp", str(val))
@@ -307,7 +310,7 @@ def on_message(client, userdata, msg):
                 else:
                     pending_commands.pop("target_temp", None)
 
-            if ac_state["target_temperature"] != val:
+            if force or ac_state["target_temperature"] != val:
                 ac_state["target_temperature"] = val
                 updated = True
                 publish_matter_state("target_temperature", val)
